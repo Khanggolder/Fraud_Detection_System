@@ -1,0 +1,17 @@
+# Core
+streamlit
+pandas
+numpy
+
+# Visualization
+matplotlib
+seaborn
+networkx
+
+# NLP / ML models
+transformers
+torch
+scikit-learn
+
+# Code metrics
+radon
