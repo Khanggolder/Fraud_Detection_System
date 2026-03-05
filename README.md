@@ -1,92 +1,92 @@
 # Fraud Detection System
 
-He thong phat hien gian lan ma nguon Python, bao gom: kiem tra dao van (plagiarism), do tuong dong ngu nghia (semantic similarity), va nhan dien code do AI tao ra.
+Hệ thống phát hiện gian lận mã nguồn Python, bao gồm: kiểm tra đạo văn (plagiarism), đo tương đồng ngữ nghĩa (semantic similarity), và nhận diện code do AI tạo ra.
 
-## Cai dat
+## Cài đặt
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Chay ung dung
+## Chạy ứng dụng
 
 ```bash
 streamlit run app.py
 ```
 
-Sau khi chay, mo trinh duyet va upload cac file `.py` tu sidebar. He thong se phan tich tren 3 nhanh doc lap.
+Sau khi chạy, mở trình duyệt và upload các file `.py` từ sidebar. Hệ thống sẽ phân tích trên 3 nhánh độc lập.
 
-## Cac nhanh phan tich
+## Các nhánh phân tích
 
-### 1. Kiem tra dao van (Plagiarism Detection)
+### 1. Kiểm tra đạo văn (Plagiarism Detection)
 
-Su dung thuat toan Winnowing de tao fingerprint tu ma nguon da duoc chuan hoa AST, roi tinh do tuong dong Jaccard giua cac cap file.
+Sử dụng thuật toán Winnowing để tạo fingerprint từ mã nguồn đã được chuẩn hóa AST, rồi tính độ tương đồng Jaccard giữa các cặp file.
 
 - Module: `src/detectors.py`
-- Dau vao: code da normalize (qua `src/preprocessor.py`)
-- Dau ra: diem tuong dong 0 - 1
+- Đầu vào: code đã normalize (qua `src/preprocessor.py`)
+- Đầu ra: điểm tương đồng 0 - 1
 
-### 2. Do tuong dong ngu nghia (Semantic Similarity)
+### 2. Đo tương đồng ngữ nghĩa (Semantic Similarity)
 
-Dung mo hinh CodeBERT de tao embedding cho tung file, sau do tinh cosine similarity giua cac cap.
+Dùng mô hình CodeBERT để tạo embedding cho từng file, sau đó tính cosine similarity giữa các cặp.
 
 - Module: `src/semantic.py`
-- Dau vao: code goc
-- Dau ra: diem tuong dong 0 - 1
+- Đầu vào: code gốc
+- Đầu ra: điểm tương đồng 0 - 1
 
-### 3. Nhan dien code AI (AI Code Detection)
+### 3. Nhận diện code AI (AI Code Detection)
 
-Phan tich phong cach lap trinh (stylometry) de uoc tinh xac suat code duoc tao boi AI. Module nay lam viec tren **code goc** (raw code), khong qua bat ky buoc tien xu ly nao de giu nguyen cac dau hieu ve whitespace, comment, naming.
+Phân tích phong cách lập trình (stylometry) để ước tính xác suất code được tạo bởi AI. Module này làm việc trên **code gốc** (raw code), không qua bất kỳ bước tiền xử lý nào để giữ nguyên các dấu hiệu về whitespace, comment, naming.
 
-- Module: `src/features.py` (trich xuat dac trung) + `src/ai_detector.py` (tinh diem)
-- Dau vao: code goc (raw string)
-- Dau ra:
-  - `p_ai`: xac suat uoc tinh (0.0 - 1.0)
-  - `score`: diem so (0 - 100)
-  - `flag`: True/False theo nguong
-  - `signals`: danh sach 3-5 tin hieu chinh
+- Module: `src/features.py` (trích xuất đặc trưng) + `src/ai_detector.py` (tính điểm)
+- Đầu vào: code gốc (raw string)
+- Đầu ra:
+  - `p_ai`: xác suất ước tính (0.0 - 1.0)
+  - `score`: điểm số (0 - 100)
+  - `flag`: True/False theo ngưỡng
+  - `signals`: danh sách 3-5 tín hiệu chính
 
-#### Cac nhom dac trung (features)
+#### Các nhóm đặc trưng (features)
 
-1. **Whitespace / Layout**: do nhat quan cua thut le, khoang trang toan tu, dau phay, do dai dong, trailing whitespace.
-2. **Comments**: ty le comment, docstring (dem bang AST), do dai comment, tutorial markers (Args, Returns, Example...).
-3. **Token / Style**: pythonic constructs, type hints, naming convention, so luong ham/class, error handling.
+1. **Whitespace / Layout**: độ nhất quán của thụt lề, khoảng trắng toán tử, dấu phẩy, độ dài dòng, trailing whitespace.
+2. **Comments**: tỷ lệ comment, docstring (đếm bằng AST), độ dài comment, tutorial markers (Args, Returns, Example...).
+3. **Token / Style**: pythonic constructs, type hints, naming convention, số lượng hàm/class, error handling.
 4. **Radon metrics**: cyclomatic complexity, maintainability index, Halstead volume/difficulty.
 
-#### Cach tinh diem
+#### Cách tính điểm
 
-Moi nhom dac trung dong gop cac "tin hieu" (signals) voi trong so (weight) khac nhau. Tong trong so duoc dua qua ham sigmoid de ra `p_ai`. Neu `p_ai >= threshold` thi file bi danh dau (flag).
+Mỗi nhóm đặc trưng đóng góp các "tín hiệu" (signals) với trọng số (weight) khác nhau. Tổng trọng số được đưa qua hàm sigmoid để ra `p_ai`. Nếu `p_ai >= threshold` thì file bị đánh dấu (flag).
 
-#### Nguong mac dinh
+#### Ngưỡng mặc định
 
-Threshold mac dinh la **0.60**. Co the chinh bang slider tren giao dien.
+Threshold mặc định là **0.60**. Có thể chỉnh bằng slider trên giao diện.
 
-- Tang nguong: giam false positive (it bao nham), nhung co the bo sot.
-- Giam nguong: bat nhieu hon nhung de bao nham.
+- Tăng ngưỡng: giảm false positive (ít báo nhầm), nhưng có thể bỏ sót.
+- Giảm ngưỡng: bắt nhiều hơn nhưng dễ báo nhầm.
 
-## Cau truc thu muc
+## Cấu trúc thư mục
 
 ```
 fraud_detection_system/
-  app.py                  # Giao dien Streamlit
+  app.py                  # Giao diện Streamlit
   requirements.txt
   README.md
-  data/                   # File mau de test
+  data/                   # File mẫu để test
     ai_generated.py
     original.py
     plagiarized.py
   src/
-    preprocessor.py       # Chuan hoa AST (dung cho plagiarism)
+    preprocessor.py       # Chuẩn hóa AST (dùng cho plagiarism)
     detectors.py          # Winnowing fingerprint
     semantic.py           # CodeBERT embedding
-    features.py           # Trich xuat 60+ dac trung stylometry
-    ai_detector.py        # Tinh diem AI detection
+    features.py           # Trích xuất 60+ đặc trưng stylometry
+    ai_detector.py        # Tính điểm AI detection
 ```
 
-## Nguong canh bao (tham khao)
+## Ngưỡng cảnh báo (tham khảo)
 
-| Chi so | Muc canh bao |
+| Chỉ số | Mức cảnh báo |
 |--------|-------------|
-| MOSS Similarity | > 0.7 la cao |
-| Semantic Similarity | > 0.8 la cao |
-| AI Score | Tuy theo threshold, mac dinh >= 60 |
+| MOSS Similarity | > 0.7 là cao |
+| Semantic Similarity | > 0.8 là cao |
+| AI Score | Tùy theo threshold, mặc định >= 60 |
