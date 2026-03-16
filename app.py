@@ -15,7 +15,7 @@ st.set_page_config(layout="wide", page_title="Python Fraud Detection System")
 @st.cache_resource
 def load_models():
     semantic_analyzer = SemanticAnalyzer(lazy_load=True)
-    ai_detector = AIDetector(use_perplexity=False)  # fast default; enable if GPU available
+    ai_detector = AIDetector(use_perplexity=False)
     return semantic_analyzer, ai_detector
 
 
@@ -72,7 +72,7 @@ if uploaded_files:
         progress_bar = st.progress(0)
 
         for i, name in enumerate(file_names):
-            raw_code = file_contents[name]  # RAW code — never preprocessed
+            raw_code = file_contents[name]
             result = ai_detector.analyze(raw_code, threshold=ai_threshold)
 
             ai_results.append({
@@ -81,7 +81,7 @@ if uploaded_files:
                 "p_ai": f'{result["p_ai"]:.3f}',
                 "Flag": "🔴 YES" if result["flag"] else "✅ NO",
                 "Top Signals": " · ".join(result["signals"][:3]),
-                "_result": result,  # keep for expander
+                "_result": result,
                 "_code": raw_code,
             })
             progress_bar.progress((i + 1) / len(file_names))

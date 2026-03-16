@@ -75,7 +75,6 @@ def _extract_comments(lines: List[str]) -> List[str]:
         if m:
             comments.append(m.group(1).strip())
         else:
-            # Inline comment
             idx = line.find(' #')
             if idx != -1:
                 after = line[idx + 2:].strip()
