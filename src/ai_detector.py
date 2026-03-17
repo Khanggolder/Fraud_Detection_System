@@ -265,7 +265,7 @@ class AIDetector:
 
         features = extract_features(code)
 
-        signal_scores: List[Tuple[str, float, float]] = []  # (label, strength, weight)
+        signal_scores: List[Tuple[str, float, float]] = []
         for label, fn, weight in SIGNALS:
             try:
                 strength = float(fn(features))
