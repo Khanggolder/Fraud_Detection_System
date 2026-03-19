@@ -1,4 +1,3 @@
-#detectors.py
 import hashlib
 
 class PlagiarismDetector:
@@ -20,18 +19,19 @@ class PlagiarismDetector:
         return hashes
 
     def _winnowing(self, hashes):
-        fingerprints = []
+        if not hashes:
+            return set()
         if len(hashes) < self.w:
-            fingerprints.append((min(hashes), 0))
-            return fingerprints
-            
+            return {min(hashes)}
+        fingerprints = set()
         for i in range(len(hashes) - self.w + 1):
             window = hashes[i:i+self.w]
-            min_val = min(window)
-            fingerprints.append(min_val)
-        return set(fingerprints)
+            fingerprints.add(min(window))
+        return fingerprints
 
     def get_fingerprint(self, code):
+        if not code or not code.strip():
+            return set()
         k_grams = self._generate_k_grams(code)
         hashes = self._hash_k_grams(k_grams)
         return self._winnowing(hashes)
@@ -39,11 +39,11 @@ class PlagiarismDetector:
     def calculate_similarity(self, code1, code2):
         fp1 = self.get_fingerprint(code1)
         fp2 = self.get_fingerprint(code2)
-        
+
         if not fp1 or not fp2:
             return 0.0
-            
+
         intersection = len(fp1.intersection(fp2))
         union = len(fp1.union(fp2))
-        
+
         return intersection / union if union > 0 else 0.0

@@ -1,4 +1,3 @@
-# features.py
 import re
 import ast
 import math
@@ -45,6 +44,10 @@ _RE_ASSERT = re.compile(r'^\s*assert\b')
 _RE_TYPE_HINT = re.compile(r'(:\s*\w+(\[.*?\])?|->)')
 _RE_WALRUS = re.compile(r':=')
 _RE_GLOBAL = re.compile(r'^\s*global\b')
+_RE_OP_IMBALANCED = re.compile(r'(?<!--)(\w\s[=+*/%-]=?\w|\w[=+*/%-]=?\s\w)(?!>)')
+_RE_RANGE_LEN = re.compile(r'range\s*\(\s*len\s*\(')
+_RE_REDUNDANT_BOOL = re.compile(r'==\s*(True|False|None)')
+_RE_DEAD_CODE = re.compile(r'^\s*#\s*(print\(|if |for |def |return)')
 
 def _get_indent_widths(lines: List[str]) -> List[int]:
     widths: List[int] = []
@@ -261,10 +264,13 @@ def extract_features(code: str) -> FeatureDict:
         features['avg_comment_len'] = statistics.mean(comment_lens)
         features['std_comment_len'] = statistics.pstdev(comment_lens) if len(comment_lens) > 1 else 0.0
         features['max_comment_len'] = max(comment_lens)
+        perfect_comments = sum(1 for c in comments if c and c[0].isupper() and not c.endswith(','))
+        features['perfect_comment_ratio'] = perfect_comments / len(comments)
     else:
         features['avg_comment_len'] = 0.0
         features['std_comment_len'] = 0.0
         features['max_comment_len'] = 0
+        features['perfect_comment_ratio'] = 0.0
 
     tutorial_hits = len(_RE_TUTORIAL_MARKERS.findall(code))
     features['tutorial_markers_present'] = tutorial_hits > 0
@@ -334,6 +340,30 @@ def extract_features(code: str) -> FeatureDict:
 
     features['total_lines'] = total_lines
     features['total_chars'] = len(code)
+
+    imbalanced_count = len(_RE_OP_IMBALANCED.findall(code))
+    features['imbalanced_spacing_count'] = imbalanced_count
+    features['imbalanced_spacing_ratio'] = imbalanced_count / max(op_total, 1)
+
+    range_len_count = len(_RE_RANGE_LEN.findall(code))
+    features['range_len_count'] = range_len_count
+    features['range_len_ratio'] = range_len_count / n_non_blank
+
+    features['redundant_bool_count'] = len(_RE_REDUNDANT_BOOL.findall(code))
+
+    dead_code_count = sum(1 for l in lines if _RE_DEAD_CODE.match(l))
+    features['dead_code_count'] = dead_code_count
+    features['dead_code_ratio'] = dead_code_count / n_non_blank
+
+    max_consec_blank = 0
+    cur_consec_blank = 0
+    for l in lines:
+        if not l.strip():
+            cur_consec_blank += 1
+            max_consec_blank = max(max_consec_blank, cur_consec_blank)
+        else:
+            cur_consec_blank = 0
+    features['max_consecutive_blank_lines'] = max_consec_blank
 
     radon = _radon_metrics(code)
     features.update(radon)

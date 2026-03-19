@@ -1,4 +1,3 @@
-# ai_detector.py
 import math
 from typing import Dict, Any, List, Tuple
 
@@ -180,22 +179,109 @@ def _sig_blank_line_structure(f: dict) -> float:
         return 0.3
     return 0.0
 
+
+def _sig_comment_style(f: dict) -> float:
+    perf_ratio = f.get('perfect_comment_ratio', 0.0)
+    std_len = f.get('std_comment_len', 0.0)
+    count = f.get('comment_count', 0)
+    score = 0.0
+    if count >= 5:
+        if std_len < 5.0:
+            score += 0.5
+        elif std_len < 10.0:
+            score += 0.3
+        if perf_ratio > 0.8:
+            score += 0.5
+        elif perf_ratio > 0.5:
+            score += 0.2
+    elif count >= 3:
+        if std_len < 5.0:
+            score += 0.4
+        if perf_ratio > 0.8:
+            score += 0.3
+    return min(score, 1.0)
+
+
+def _sig_human_artifacts(f: dict) -> float:
+    score = 0.0
+    imb = f.get('imbalanced_spacing_count', 0)
+    if imb >= 3:
+        score -= 1.0
+    elif imb >= 1:
+        score -= 0.5
+    rl = f.get('range_len_count', 0)
+    if rl >= 2:
+        score -= 0.8
+    elif rl >= 1:
+        score -= 0.4
+    if f.get('dead_code_count', 0) > 0:
+        score -= 0.5
+    mcb = f.get('max_consecutive_blank_lines', 0)
+    if mcb > 3:
+        score -= 0.5
+    elif mcb > 2:
+        score -= 0.3
+    if f.get('redundant_bool_count', 0) > 0:
+        score -= 0.3
+    return score
+
+
+def _sig_clean_code(f: dict) -> float:
+    score = 0.0
+    if f.get('imbalanced_spacing_count', 0) == 0:
+        score += 0.3
+    if f.get('range_len_count', 0) == 0:
+        score += 0.2
+    if f.get('dead_code_count', 0) == 0:
+        score += 0.2
+    if f.get('redundant_bool_count', 0) == 0:
+        score += 0.15
+    if f.get('max_consecutive_blank_lines', 0) <= 2:
+        score += 0.15
+    if f.get('indent_inconsistency_count', 0) == 0 and f.get('total_lines', 0) > 5:
+        score += 0.3
+    if f.get('trailing_whitespace_ratio', 1.0) < 0.01:
+        score += 0.2
+    if f.get('pep8_long_line_ratio', 1.0) < 0.02:
+        score += 0.2
+    if f.get('naming_convention_consistent', False) and f.get('function_count', 0) > 0:
+        score += 0.25
+    return score
+
+
+def _sig_over_perfection(f: dict) -> float:
+    score = 0.0
+    if f.get('indent_inconsistency_count', 0) == 0 and f.get('total_lines', 0) > 5:
+        score += 0.3
+    if f.get('naming_convention_consistent', False) and f.get('function_count', 0) > 0:
+        score += 0.3
+    if f.get('pep8_long_line_ratio', 1.0) < 0.02 and f.get('trailing_whitespace_ratio', 1.0) < 0.02:
+        score += 0.2
+    if f.get('imbalanced_spacing_count', 0) == 0 and f.get('operator_count', 0) >= 3:
+        score += 0.2
+    return min(score, 1.0)
+
+
 SIGNALS: List[Tuple[str, Any, float]] = [
-    ("Perfectly consistent indentation",  _sig_indent_consistency,  2.0),
-    ("Consistent operator spacing",       _sig_operator_spacing,    1.5),
-    ("Consistent comma spacing",          _sig_comma_spacing,       1.0),
-    ("Docstrings present for functions",  _sig_docstrings,          2.0),
+    ("Perfectly consistent indentation",  _sig_indent_consistency,  1.5),
+    ("Consistent operator spacing",       _sig_operator_spacing,    1.2),
+    ("Consistent comma spacing",          _sig_comma_spacing,       0.8),
+    ("Docstrings present for functions",  _sig_docstrings,          1.8),
     ("Tutorial-style markers (Args/Returns/Example)", _sig_tutorial_markers, 2.5),
-    ("High-quality, uniform comments",    _sig_comment_quality,     1.5),
-    ("Pythonic constructs used",          _sig_pythonic,            1.5),
-    ("Uniform line lengths",              _sig_line_uniformity,     1.5),
-    ("PEP-8 compliance",                  _sig_pep8_compliance,     1.0),
-    ("Consistent naming convention",      _sig_naming_consistency,  1.5),
-    ("Type hints present",                _sig_type_hints,          1.5),
-    ("Error handling patterns",           _sig_error_handling,      1.0),
-    ("High maintainability index",        _sig_high_maintainability,1.5),
-    ("Low cyclomatic complexity",         _sig_low_complexity,      1.0),
-    ("Structured blank-line usage",       _sig_blank_line_structure,1.0),
+    ("High-quality, uniform comments",    _sig_comment_quality,     1.2),
+    ("Pythonic constructs used",          _sig_pythonic,            1.2),
+    ("Uniform line lengths",              _sig_line_uniformity,     1.2),
+    ("PEP-8 compliance",                  _sig_pep8_compliance,     0.8),
+    ("Consistent naming convention",      _sig_naming_consistency,  1.2),
+    ("Type hints present",                _sig_type_hints,          1.2),
+    ("Error handling patterns",           _sig_error_handling,      0.8),
+    ("High maintainability index",        _sig_high_maintainability,1.2),
+    ("Low cyclomatic complexity",         _sig_low_complexity,      0.8),
+    ("Structured blank-line usage",       _sig_blank_line_structure,0.8),
+    ("Comment Style Analysis",            _sig_comment_style,       3.0),
+    ("Human Artifacts Penalty",           _sig_human_artifacts,     3.5),
+    ("Clean Code Detection",              _sig_clean_code,          4.0),
+    ("Over-perfection Detection",         _sig_over_perfection,     2.5),
 ]
 
 _MAX_WEIGHT = sum(w for _, _, w in SIGNALS)
@@ -221,7 +307,6 @@ class AIDetector:
             self.model.to(self.device)
             self.model.eval()
         except Exception as e:
-            print(f"[AIDetector] LM load failed (perplexity disabled): {e}")
             self.model = None
             self.use_perplexity = False
 
