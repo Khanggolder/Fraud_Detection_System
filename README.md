@@ -44,18 +44,34 @@ Phân tích phong cách lập trình (stylometry) để ước tính xác suất
   - `p_ai`: xác suất ước tính (0.0 - 1.0)
   - `score`: điểm số (0 - 100)
   - `flag`: True/False theo ngưỡng
-  - `signals`: danh sách 3-5 tín hiệu chính
+  - `signals`: danh sách tín hiệu chính (top 5)
 
-#### Các nhóm đặc trưng (features)
+#### Các nhóm đặc trưng (70+ features)
 
-1. **Whitespace / Layout**: độ nhất quán của thụt lề, khoảng trắng toán tử, dấu phẩy, độ dài dòng, trailing whitespace.
-2. **Comments**: tỷ lệ comment, docstring (đếm bằng AST), độ dài comment, tutorial markers (Args, Returns, Example...).
-3. **Token / Style**: pythonic constructs, type hints, naming convention, số lượng hàm/class, error handling.
-4. **Radon metrics**: cyclomatic complexity, maintainability index, Halstead volume/difficulty.
+1. **Whitespace / Layout**: thụt lề, khoảng trắng toán tử, dấu phẩy, độ dài dòng, trailing whitespace, blank lines liên tiếp.
+2. **Comments**: tỷ lệ comment, docstring (đếm bằng AST), perfect comment ratio, độ dài và độ lệch chuẩn comment, tutorial markers (Args, Returns, Example...).
+3. **Token / Style**: pythonic constructs (enumerate, zip, comprehension, walrus...), type hints, naming convention, số lượng hàm/class, error handling.
+4. **Human artifacts**: imbalanced spacing (x =3), range(len(...)), so sánh thừa (== True/False/None), dead code (code bị comment lại).
+5. **Radon metrics**: cyclomatic complexity, maintainability index, Halstead volume/difficulty.
+
+#### Hệ thống tín hiệu (19 signals)
+
+Mỗi tín hiệu có trọng số (weight) khác nhau. Một số signal chính:
+
+| Signal | Weight | Mô tả |
+|--------|--------|-------|
+| Clean Code Detection | 4.0 | Phát hiện code không có "lỗi người", sạch tuyệt đối |
+| Human Artifacts Penalty | 3.5 | Trừ điểm khi có dấu hiệu code người (spacing lệch, range(len()), dead code) |
+| Comment Style Analysis | 3.0 | Phân tích comment đều đặn, viết hoa chuẩn, std thấp |
+| Tutorial Markers | 2.5 | Phát hiện Args/Returns/Example/Step trong docstring |
+| Over-perfection Detection | 2.5 | Phát hiện code "hoàn hảo quá mức" đồng thời ở nhiều khía cạnh |
+| Docstrings | 1.8 | Tỷ lệ hàm có docstring (đếm bằng AST) |
+| Indent / Operator / Naming... | 0.8 - 1.5 | Các tín hiệu bổ trợ |
 
 #### Cách tính điểm
 
-Mỗi nhóm đặc trưng đóng góp các "tín hiệu" (signals) với trọng số (weight) khác nhau. Tổng trọng số được đưa qua hàm sigmoid để ra `p_ai`. Nếu `p_ai >= threshold` thì file bị đánh dấu (flag).
+Tổng weighted sum -> chuẩn hóa theo _MAX_WEIGHT -> scale [-3, +3] -> sigmoid -> `p_ai`.
+Signal có thể trả giá trị âm (ví dụ: Human Artifacts Penalty), giúp giảm p_ai khi phát hiện code do người viết.
 
 #### Ngưỡng mặc định
 
@@ -71,16 +87,18 @@ fraud_detection_system/
   app.py                  # Giao diện Streamlit
   requirements.txt
   README.md
-  data/                   # File mẫu để test
-    ai_generated.py
-    original.py
-    plagiarized.py
+  data/
+    ai_generated.py       # File mẫu AI-generated
+    original.py           # File mẫu sinh viên viết
+    plagiarized.py        # File mẫu đạo văn
+    ai/                   # Thư mục chứa thêm mẫu AI
+    human_pre_2021/       # Thư mục chứa mẫu code người (trước 2021)
   src/
     preprocessor.py       # Chuẩn hóa AST (dùng cho plagiarism)
-    detectors.py          # Winnowing fingerprint
-    semantic.py           # CodeBERT embedding
-    features.py           # Trích xuất 60+ đặc trưng stylometry
-    ai_detector.py        # Tính điểm AI detection
+    detectors.py          # Winnowing fingerprint + Jaccard similarity
+    semantic.py           # CodeBERT embedding + cosine similarity
+    features.py           # Trích xuất 70+ đặc trưng stylometry
+    ai_detector.py        # 19 signals + sigmoid scoring + perplexity
 ```
 
 ## Ngưỡng cảnh báo (tham khảo)
