@@ -1,4 +1,5 @@
 import math
+import logging
 from typing import Dict, Any, List, Tuple
 
 try:
@@ -10,6 +11,8 @@ except ImportError:
     HAS_LM = False
 
 from .features import extract_features
+
+logger = logging.getLogger(__name__)
 
 
 def _sigmoid(x: float) -> float:
@@ -300,50 +303,91 @@ class AIDetector:
             self._load_lm()
 
     def _load_lm(self) -> None:
+        model_name = "Qwen/Qwen2.5-Coder-0.5B"
         try:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            self.tokenizer = AutoTokenizer.from_pretrained("distilgpt2")
-            self.model = AutoModelForCausalLM.from_pretrained("distilgpt2")
+            logger.info("Loading code model: %s on %s", model_name, self.device)
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                model_name, trust_remote_code=True,
+            )
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_name,
+                trust_remote_code=True,
+                torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+            )
+            if self.tokenizer.pad_token is None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
             self.model.to(self.device)
             self.model.eval()
-        except Exception as e:
+            logger.info("Code model loaded successfully")
+        except (OSError, RuntimeError, ValueError) as e:
+            logger.warning("Failed to load code model %s: %s", model_name, e)
             self.model = None
             self.use_perplexity = False
 
     def _calculate_perplexity(self, code: str) -> Dict[str, float]:
+        default = {"perplexity": 0.0, "burstiness": 0.0, "mean_entropy": 0.0}
         if not self.use_perplexity or self.model is None or self.tokenizer is None:
-            return {"perplexity": 0.0, "burstiness": 0.0}
+            return default
 
         try:
-            encodings = self.tokenizer(code, return_tensors="pt")
-            max_length = self.model.config.n_positions
-            stride = 512
-            seq_len = encodings.input_ids.size(1)
+            encodings = self.tokenizer(
+                code, return_tensors="pt", truncation=True, max_length=2048,
+            )
+            input_ids = encodings.input_ids.to(self.device)
+            seq_len = input_ids.size(1)
 
-            nlls = []
-            prev_end = 0
+            if seq_len < 2:
+                return default
+
+            max_length = min(
+                getattr(self.model.config, 'max_position_embeddings', 2048), 2048,
+            )
+            stride = max_length // 2
+            all_log_probs = []
+
             for begin in range(0, seq_len, stride):
                 end = min(begin + max_length, seq_len)
-                trg_len = end - prev_end
-                input_ids = encodings.input_ids[:, begin:end].to(self.device)
-                target_ids = input_ids.clone()
-                target_ids[:, :-trg_len] = -100
+                chunk_ids = input_ids[:, begin:end]
 
                 with torch.no_grad():
-                    loss = self.model(input_ids, labels=target_ids).loss
-                nlls.append(loss)
-                prev_end = end
-                if end == seq_len:
+                    outputs = self.model(chunk_ids)
+                    logits = outputs.logits
+
+                shift_logits = logits[:, :-1, :].contiguous()
+                shift_labels = chunk_ids[:, 1:].contiguous()
+
+                log_probs = torch.nn.functional.log_softmax(shift_logits, dim=-1)
+                token_log_probs = log_probs.gather(
+                    2, shift_labels.unsqueeze(-1)
+                ).squeeze(-1)
+
+                valid_start = (stride if begin > 0 else 0)
+                valid_end = token_log_probs.size(1)
+                if valid_start < valid_end:
+                    all_log_probs.append(token_log_probs[:, valid_start:valid_end].squeeze(0))
+
+                if end >= seq_len:
                     break
 
-            if not nlls:
-                return {"perplexity": 0.0, "burstiness": 0.0}
+            if not all_log_probs:
+                return default
 
-            ppl = torch.exp(torch.stack(nlls).mean()).item()
-            burst = torch.stack(nlls).std().item() if len(nlls) > 1 else 0.0
-            return {"perplexity": ppl, "burstiness": burst}
-        except Exception:
-            return {"perplexity": 0.0, "burstiness": 0.0}
+            concat_log_probs = torch.cat(all_log_probs, dim=0)
+            mean_nll = -concat_log_probs.mean().item()
+            ppl = math.exp(min(mean_nll, 20.0))
+            entropies = -concat_log_probs.detach().cpu().numpy()
+            burst = float(np.std(entropies)) if len(entropies) > 1 else 0.0
+            mean_ent = float(np.mean(entropies))
+
+            return {
+                "perplexity": round(ppl, 4),
+                "burstiness": round(burst, 4),
+                "mean_entropy": round(mean_ent, 4),
+            }
+        except (RuntimeError, IndexError, ValueError) as e:
+            logger.debug("Perplexity calculation failed: %s", e)
+            return default
 
     def analyze(self, code: str, threshold: float | None = None) -> Dict[str, Any]:
         thr = threshold if threshold is not None else self.threshold
@@ -354,26 +398,42 @@ class AIDetector:
         for label, fn, weight in SIGNALS:
             try:
                 strength = float(fn(features))
-            except Exception:
+            except (KeyError, TypeError, ZeroDivisionError) as e:
+                logger.debug("Signal '%s' failed: %s", label, e)
                 strength = 0.0
             signal_scores.append((label, strength, weight))
-
+        _SCALE_FACTOR = 6.0
+        _OFFSET = -3.0
         weighted_sum = sum(s * w for _, s, w in signal_scores)
-        normalized = (weighted_sum / _MAX_WEIGHT) * 6.0 - 3.0
+        normalized = (weighted_sum / _MAX_WEIGHT) * _SCALE_FACTOR + _OFFSET
         p_ai = _sigmoid(normalized)
 
         ppl_data = self._calculate_perplexity(code)
         ppl_adj = 0.0
-        if ppl_data["perplexity"] > 0:
-            if ppl_data["perplexity"] < 20:
-                ppl_adj = 0.08
-            elif ppl_data["perplexity"] < 50:
-                ppl_adj = 0.04
-            elif ppl_data["perplexity"] > 200:
-                ppl_adj = -0.05
+        ppl_val = ppl_data["perplexity"]
+        if ppl_val > 0:
+            if ppl_val < 5:
+                ppl_adj = 0.10
+            elif ppl_val < 20:
+                ppl_adj = 0.06
+            elif ppl_val < 50:
+                ppl_adj = 0.03
+            elif ppl_val > 200:
+                ppl_adj = -0.06
+            elif ppl_val > 100:
+                ppl_adj = -0.03
 
-            if ppl_data["burstiness"] < 1.5 and ppl_data["burstiness"] > 0:
+            burst = ppl_data["burstiness"]
+            if 0 < burst < 0.8:
+                ppl_adj += 0.03
+            elif burst > 2.5:
+                ppl_adj -= 0.03
+
+            ent = ppl_data.get("mean_entropy", 0.0)
+            if 0 < ent < 1.0:
                 ppl_adj += 0.02
+            elif ent > 4.0:
+                ppl_adj -= 0.02
 
         p_ai = max(0.0, min(1.0, p_ai + ppl_adj))
         score = int(round(p_ai * 100))

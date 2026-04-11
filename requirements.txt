@@ -12,6 +12,8 @@ networkx
 transformers
 torch
 scikit-learn
+xgboost
+joblib
 
 # Code metrics
 radon

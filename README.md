@@ -1,6 +1,8 @@
 # Fraud Detection System
 
-Hệ thống phát hiện gian lận mã nguồn Python, bao gồm: kiểm tra đạo văn (plagiarism), đo tương đồng ngữ nghĩa (semantic similarity), và nhận diện code do AI tạo ra.
+Hệ thống phát hiện gian lận mã nguồn đa ngôn ngữ (Python, C, C++) bao gồm: kiểm tra đạo văn, đo tương đồng ngữ nghĩa, và nhận diện code do AI tạo ra.
+
+Hỗ trợ 2 engine phát hiện: **Rule-Based** (signal weights) và **Machine Learning** (Random Forest / XGBoost).
 
 ## Cài đặt
 
@@ -11,100 +13,206 @@ pip install -r requirements.txt
 ## Chạy ứng dụng
 
 ```bash
-streamlit run app.py
+streamlit run app.py        # Python detector
+streamlit run app_c.py      # C detector
+streamlit run app_cpp.py    # C++ detector
 ```
 
-Sau khi chạy, mở trình duyệt và upload các file `.py` từ sidebar. Hệ thống sẽ phân tích trên 3 nhánh độc lập.
+## Hệ thống phát hiện
 
-## Các nhánh phân tích
+### 1. Python Fraud Detection (`app.py`)
 
-### 1. Kiểm tra đạo văn (Plagiarism Detection)
+Phân tích file Python trên 3 nhánh độc lập:
 
-Sử dụng thuật toán Winnowing để tạo fingerprint từ mã nguồn đã được chuẩn hóa AST, rồi tính độ tương đồng Jaccard giữa các cặp file.
+- **Plagiarism Detection**: Winnowing fingerprint + Jaccard similarity
+- **Semantic Similarity**: CodeBERT embedding + cosine similarity
+- **AI Code Detection**: 19 signal functions + Qwen2.5-Coder perplexity scoring
 
-- Module: `src/detectors.py`
-- Đầu vào: code đã normalize (qua `src/preprocessor.py`)
-- Đầu ra: điểm tương đồng 0 - 1
+| Module | Chức năng |
+|--------|-----------|
+| `src/preprocessor.py` | Chuẩn hóa AST cho plagiarism |
+| `src/detectors.py` | Winnowing fingerprint + Jaccard |
+| `src/semantic.py` | CodeBERT embedding + cosine similarity |
+| `src/features.py` | Trích xuất 70+ features Python |
+| `src/ai_detector.py` | 19 signals + Qwen2.5-Coder perplexity |
 
-### 2. Đo tương đồng ngữ nghĩa (Semantic Similarity)
+---
 
-Dùng mô hình CodeBERT để tạo embedding cho từng file, sau đó tính cosine similarity giữa các cặp.
+### 2. C AI Code Detector (`app_c.py`)
 
-- Module: `src/semantic.py`
-- Đầu vào: code gốc
-- Đầu ra: điểm tương đồng 0 - 1
+Phát hiện code C do AI tạo ra bằng phân tích AST (Tree-sitter).
 
-### 3. Nhận diện code AI (AI Code Detection)
+- **Features**: 106 features (memory management, header analysis, naming, formatting, Halstead)
+- **Signals**: 10 signal functions + Token Distribution (Qwen2.5-Coder)
+- **Dataset**: 112,001 AI + 1,099 Human files
 
-Phân tích phong cách lập trình (stylometry) để ước tính xác suất code được tạo bởi AI. Module này làm việc trên **code gốc** (raw code), không qua bất kỳ bước tiền xử lý nào để giữ nguyên các dấu hiệu về whitespace, comment, naming.
+| Module | Chức năng |
+|--------|-----------|
+| `src/c_features.py` | Trích xuất 106 features C |
+| `src/c_ai_detector.py` | 10 signals + perplexity scoring |
 
-- Module: `src/features.py` (trích xuất đặc trưng) + `src/ai_detector.py` (tính điểm)
-- Đầu vào: code gốc (raw string)
-- Đầu ra:
-  - `p_ai`: xác suất ước tính (0.0 - 1.0)
-  - `score`: điểm số (0 - 100)
-  - `flag`: True/False theo ngưỡng
-  - `signals`: danh sách tín hiệu chính (top 5)
+---
 
-#### Các nhóm đặc trưng (70+ features)
+### 3. C++ AI Code Detector (`app_cpp.py`)
 
-1. **Whitespace / Layout**: thụt lề, khoảng trắng toán tử, dấu phẩy, độ dài dòng, trailing whitespace, blank lines liên tiếp.
-2. **Comments**: tỷ lệ comment, docstring (đếm bằng AST), perfect comment ratio, độ dài và độ lệch chuẩn comment, tutorial markers (Args, Returns, Example...).
-3. **Token / Style**: pythonic constructs (enumerate, zip, comprehension, walrus...), type hints, naming convention, số lượng hàm/class, error handling.
-4. **Human artifacts**: imbalanced spacing (x =3), range(len(...)), so sánh thừa (== True/False/None), dead code (code bị comment lại).
-5. **Radon metrics**: cyclomatic complexity, maintainability index, Halstead volume/difficulty.
+Phát hiện code C++ do AI tạo ra bằng phân tích AST (Tree-sitter).
 
-#### Hệ thống tín hiệu (19 signals)
+- **Features**: 134 features (modern C++, RAII, smart pointers, naming, formatting, Halstead)
+- **Signals**: 11 signal functions + Token Distribution (Qwen2.5-Coder)
+- **Dataset**: 154 AI + 617 Human files
 
-Mỗi tín hiệu có trọng số (weight) khác nhau. Một số signal chính:
+| Module | Chức năng |
+|--------|-----------|
+| `src/cpp_features.py` | Trích xuất 134 features C++ |
+| `src/cpp_ai_detector.py` | 11 signals + perplexity scoring |
 
-| Signal | Weight | Mô tả |
-|--------|--------|-------|
-| Clean Code Detection | 4.0 | Phát hiện code không có "lỗi người", sạch tuyệt đối |
-| Human Artifacts Penalty | 3.5 | Trừ điểm khi có dấu hiệu code người (spacing lệch, range(len()), dead code) |
-| Comment Style Analysis | 3.0 | Phân tích comment đều đặn, viết hoa chuẩn, std thấp |
-| Tutorial Markers | 2.5 | Phát hiện Args/Returns/Example/Step trong docstring |
-| Over-perfection Detection | 2.5 | Phát hiện code "hoàn hảo quá mức" đồng thời ở nhiều khía cạnh |
-| Docstrings | 1.8 | Tỷ lệ hàm có docstring (đếm bằng AST) |
-| Indent / Operator / Naming... | 0.8 - 1.5 | Các tín hiệu bổ trợ |
+---
 
-#### Cách tính điểm
+### 4. ML Pipeline (Chung cho C và C++)
 
-Tổng weighted sum -> chuẩn hóa theo _MAX_WEIGHT -> scale [-3, +3] -> sigmoid -> `p_ai`.
-Signal có thể trả giá trị âm (ví dụ: Human Artifacts Penalty), giúp giảm p_ai khi phát hiện code do người viết.
+Thay thế rule-based bằng model ML đã train sẵn.
 
-#### Ngưỡng mặc định
+| Module | Chức năng |
+|--------|-----------|
+| `extract_features_csv.py` | Batch extraction (multiprocessing, checkpointing) |
+| `train_model.py` | Train XGBoost / Random Forest với 5-Fold CV |
+| `src/ml_detector.py` | Inference bằng model .pkl |
 
-Threshold mặc định là **0.60**. Có thể chỉnh bằng slider trên giao diện.
+## Kết quả Test
 
-- Tăng ngưỡng: giảm false positive (ít báo nhầm), nhưng có thể bỏ sót.
-- Giảm ngưỡng: bắt nhiều hơn nhưng dễ báo nhầm.
+### Rule-Based Detector Test
+
+| Hệ thống | Input | Score | Kết quả |
+|-----------|-------|-------|---------|
+| Python (`ai_detector.py`) | `def hello(): pass` | 36/100 | Human |
+| C (`c_ai_detector.py`) | `int main() { return 0; }` | 22/100 | Human |
+| C++ (`cpp_ai_detector.py`) | `#include <iostream> int main() {}` | 11/100 | Human |
+
+### ML Model Test (Random Forest)
+
+| Hệ thống | Input | Score | Kết quả |
+|-----------|-------|-------|---------|
+| ML C | `int main() { return 0; }` | 0/100 | Human |
+| ML C++ | `#include <iostream> int main() {}` | 43/100 | Human |
+
+### C Model — Training Metrics
+
+| Metric | 5-Fold CV | Full Dataset |
+|--------|-----------|--------------|
+| Accuracy | 1.0000 ± 0.0000 | 1.0000 |
+| Precision | — | 1.0000 |
+| Recall | — | 1.0000 |
+| F1 Score | 1.0000 ± 0.0000 | 1.0000 |
+| ROC-AUC | 1.0000 ± 0.0000 | 1.0000 |
+
+- Training samples: 1,000 (500 AI + 500 Human)
+- Features: 106
+- Model: Random Forest
+
+### C++ Model — Training Metrics
+
+| Metric | 5-Fold CV | Full Dataset |
+|--------|-----------|--------------|
+| Accuracy | 1.0000 ± 0.0000 | 1.0000 |
+| Precision | — | 1.0000 |
+| Recall | — | 1.0000 |
+| F1 Score | 1.0000 ± 0.0000 | 1.0000 |
+| ROC-AUC | 1.0000 ± 0.0000 | 1.0000 |
+
+- Training samples: 100 (50 AI + 50 Human)
+- Features: 134
+- Model: Random Forest
+
+### Overfitting Diagnostic
+
+| Bài Test | C | C++ |
+|----------|---|-----|
+| Train/Test Gap (80/20) | 0.00% | 0.00% |
+| Learning Curve | Hội tụ | Hội tụ |
+| 10-Fold CV Mean Accuracy | 99.97% | 100.00% |
+| 10-Fold CV Min Accuracy | 99.68% | 100.00% |
+| Permutation Test (Shuffled) | 60.4% | 74.5% |
+
+### Top Features
+
+**C:**
+
+| Feature | Correlation |
+|---------|-------------|
+| `std_header_count` | 0.857 |
+| `op_spacing_rate` | 0.800 |
+| `header_diversity` | 0.719 |
+| `comma_space_rate` | 0.711 |
+| `ast_error_ratio` | 0.676 |
+
+**C++:**
+
+| Feature | Correlation |
+|---------|-------------|
+| `specific_header_count` | 0.950 |
+| `unique_headers` | 0.950 |
+| `specific_header_ratio` | 0.920 |
+| `modern_cpp_ratio` | 0.812 |
+| `brace_same_line_count` | 0.788 |
 
 ## Cấu trúc thư mục
 
 ```
 fraud_detection_system/
-  app.py                  # Giao diện Streamlit
+  app.py                     # UI Python detector
+  app_c.py                   # UI C detector
+  app_cpp.py                 # UI C++ detector
+  extract_features_csv.py    # Batch feature extraction
+  train_model.py             # ML training pipeline
   requirements.txt
   README.md
-  data/
-    ai_generated.py       # File mẫu AI-generated
-    original.py           # File mẫu sinh viên viết
-    plagiarized.py        # File mẫu đạo văn
-    ai/                   # Thư mục chứa thêm mẫu AI
-    human_pre_2021/       # Thư mục chứa mẫu code người (trước 2021)
+  data/                      # Dataset Python
+  data_C/                    # Dataset C (112,001 AI + 1,099 Human)
+    AI/
+    Human/
+  dataset_CPP/               # Dataset C++ (154 AI + 617 Human)
+    ai/
+    human/
+  models/                    # Trained ML models
+    c_model.pkl
+    c_scaler.pkl
+    c_metadata.json
+    cpp_model.pkl
+    cpp_scaler.pkl
+    cpp_metadata.json
   src/
-    preprocessor.py       # Chuẩn hóa AST (dùng cho plagiarism)
-    detectors.py          # Winnowing fingerprint + Jaccard similarity
-    semantic.py           # CodeBERT embedding + cosine similarity
-    features.py           # Trích xuất 70+ đặc trưng stylometry
-    ai_detector.py        # 19 signals + sigmoid scoring + perplexity
+    preprocessor.py          # AST normalization (Python)
+    detectors.py             # Winnowing + Jaccard
+    semantic.py              # CodeBERT + cosine similarity
+    features.py              # Python feature extraction (70+)
+    ai_detector.py           # Python AI signals (19) + Qwen2.5-Coder
+    c_features.py            # C feature extraction (106)
+    c_ai_detector.py         # C AI signals (10)
+    cpp_features.py          # C++ feature extraction (134)
+    cpp_ai_detector.py       # C++ AI signals (11)
+    ml_detector.py           # ML inference module
 ```
 
-## Ngưỡng cảnh báo (tham khảo)
+## Detection Modes
 
-| Chỉ số | Mức cảnh báo |
-|--------|-------------|
-| MOSS Similarity | > 0.7 là cao |
-| Semantic Similarity | > 0.8 là cao |
-| AI Score | Tùy theo threshold, mặc định >= 60 |
+| Mode | Engine | Ưu điểm | Nhược điểm |
+|------|--------|---------|-------------|
+| Rule-Based | Signal weights + sigmoid | Giải thích được, không cần train | Cần calibrate thủ công |
+| ML Model | Random Forest / XGBoost | Accuracy cao, tự học từ data | Cần dataset đủ lớn |
+
+## Perplexity Model
+
+Cả 3 hệ thống đều sử dụng **Qwen/Qwen2.5-Coder-0.5B** cho perplexity scoring (optional):
+- AI code có perplexity thấp (dễ đoán)
+- Human code có perplexity cao (khó đoán hơn)
+- Burstiness thấp = output đều đặn = AI pattern
+- Cần ~1GB download lần đầu
+
+## Dependencies
+
+```
+streamlit, pandas, numpy
+matplotlib, seaborn, networkx
+transformers, torch, scikit-learn, xgboost, joblib
+radon
+```
