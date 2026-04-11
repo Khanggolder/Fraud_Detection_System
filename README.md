@@ -78,50 +78,76 @@ Thay thế rule-based bằng model ML đã train sẵn.
 | `train_model.py` | Train XGBoost / Random Forest với 5-Fold CV |
 | `src/ml_detector.py` | Inference bằng model .pkl |
 
-## Kết quả Test
+## Kết quả Test trên Dataset thực tế
 
-### Rule-Based Detector Test
+Test được thực hiện bằng `test_all_systems.py` trên dataset thực, lấy mẫu ngẫu nhiên tối đa 200 file/class (seed=42).
 
-| Hệ thống | Input | Score | Kết quả |
-|-----------|-------|-------|---------|
-| Python (`ai_detector.py`) | `def hello(): pass` | 36/100 | Human |
-| C (`c_ai_detector.py`) | `int main() { return 0; }` | 22/100 | Human |
-| C++ (`cpp_ai_detector.py`) | `#include <iostream> int main() {}` | 11/100 | Human |
+### Tổng hợp kết quả
 
-### ML Model Test (Random Forest)
+| Hệ thống | Accuracy | Precision | Recall | F1 Score | TP | FP | TN | FN |
+|----------|----------|-----------|--------|----------|----|----|----|----|
+| **Python Rule-Based** | 64.67% | 0.4615 | 0.3600 | 0.4045 | 18 | 21 | 79 | 32 |
+| **C Rule-Based** | 94.50% | 0.9890 | 0.9000 | 0.9424 | 180 | 2 | 198 | 20 |
+| **C++ Rule-Based** | 75.71% | 1.0000 | 0.4416 | 0.6126 | 68 | 0 | 200 | 86 |
+| **C ML Model (RF)** | **100.00%** | 1.0000 | 1.0000 | 1.0000 | 200 | 0 | 200 | 0 |
+| **C++ ML Model (RF)** | **99.72%** | 1.0000 | 0.9935 | 0.9967 | 153 | 0 | 200 | 1 |
 
-| Hệ thống | Input | Score | Kết quả |
-|-----------|-------|-------|---------|
-| ML C | `int main() { return 0; }` | 0/100 | Human |
-| ML C++ | `#include <iostream> int main() {}` | 43/100 | Human |
+### Chi tiết từng hệ thống
 
-### C Model — Training Metrics
+#### Python Rule-Based (50 AI + 100 Human, threshold=0.60)
+
+- Accuracy: 64.67% — F1: 0.4045
+- Precision: 0.46 (nhiều false positive)
+- Recall: 0.36 (bỏ sót nhiều AI code)
+- Dataset Python nhỏ (50 AI + 100 Human), chưa có ML model
+
+#### C Rule-Based (200 AI + 200 Human, threshold=0.35)
+
+- Accuracy: 94.50% — F1: 0.9424
+- Precision: 0.989 (gần như không báo nhầm)
+- Recall: 0.90 (phát hiện được 90% AI code)
+- Tốc độ: 69 files/sec
+
+#### C++ Rule-Based (154 AI + 200 Human, threshold=0.60)
+
+- Accuracy: 75.71% — F1: 0.6126
+- Precision: 1.000 (không có false positive)
+- Recall: 0.4416 (bỏ sót 56% AI code — cần hạ threshold)
+- Tốc độ: 65 files/sec
+
+#### C ML Model — Random Forest (200 AI + 200 Human, threshold=0.50)
+
+- Accuracy: 100.00% — F1: 1.0000
+- TP=200, FP=0, TN=200, FN=0
+- Tốc độ: 8 files/sec (chậm hơn do feature extraction)
+
+#### C++ ML Model — Random Forest (154 AI + 200 Human, threshold=0.50)
+
+- Accuracy: 99.72% — F1: 0.9967
+- TP=153, FP=0, TN=200, FN=1 (chỉ miss 1 file)
+- Tốc độ: 7 files/sec
+
+### ML Model Training Metrics
+
+#### C Model (Random Forest)
 
 | Metric | 5-Fold CV | Full Dataset |
 |--------|-----------|--------------|
 | Accuracy | 1.0000 ± 0.0000 | 1.0000 |
-| Precision | — | 1.0000 |
-| Recall | — | 1.0000 |
 | F1 Score | 1.0000 ± 0.0000 | 1.0000 |
 | ROC-AUC | 1.0000 ± 0.0000 | 1.0000 |
 
-- Training samples: 1,000 (500 AI + 500 Human)
-- Features: 106
-- Model: Random Forest
+- Training: 1,000 samples (500 AI + 500 Human) — 106 features
 
-### C++ Model — Training Metrics
+#### C++ Model (Random Forest)
 
 | Metric | 5-Fold CV | Full Dataset |
 |--------|-----------|--------------|
 | Accuracy | 1.0000 ± 0.0000 | 1.0000 |
-| Precision | — | 1.0000 |
-| Recall | — | 1.0000 |
 | F1 Score | 1.0000 ± 0.0000 | 1.0000 |
 | ROC-AUC | 1.0000 ± 0.0000 | 1.0000 |
 
-- Training samples: 100 (50 AI + 50 Human)
-- Features: 134
-- Model: Random Forest
+- Training: 100 samples (50 AI + 50 Human) — 134 features
 
 ### Overfitting Diagnostic
 
@@ -130,15 +156,14 @@ Thay thế rule-based bằng model ML đã train sẵn.
 | Train/Test Gap (80/20) | 0.00% | 0.00% |
 | Learning Curve | Hội tụ | Hội tụ |
 | 10-Fold CV Mean Accuracy | 99.97% | 100.00% |
-| 10-Fold CV Min Accuracy | 99.68% | 100.00% |
 | Permutation Test (Shuffled) | 60.4% | 74.5% |
 
 ### Top Features
 
 **C:**
 
-| Feature | Correlation |
-|---------|-------------|
+| Feature | Importance |
+|---------|------------|
 | `std_header_count` | 0.857 |
 | `op_spacing_rate` | 0.800 |
 | `header_diversity` | 0.719 |
@@ -147,8 +172,8 @@ Thay thế rule-based bằng model ML đã train sẵn.
 
 **C++:**
 
-| Feature | Correlation |
-|---------|-------------|
+| Feature | Importance |
+|---------|------------|
 | `specific_header_count` | 0.950 |
 | `unique_headers` | 0.950 |
 | `specific_header_ratio` | 0.920 |
@@ -164,32 +189,26 @@ fraud_detection_system/
   app_cpp.py                 # UI C++ detector
   extract_features_csv.py    # Batch feature extraction
   train_model.py             # ML training pipeline
+  test_all_systems.py        # Test script cho toàn bộ hệ thống
+  check_overfitting.py       # Overfitting diagnostic
   requirements.txt
   README.md
-  data/                      # Dataset Python
+  data/                      # Dataset Python (50 AI + 100 Human)
   data_C/                    # Dataset C (112,001 AI + 1,099 Human)
-    AI/
-    Human/
   dataset_CPP/               # Dataset C++ (154 AI + 617 Human)
-    ai/
-    human/
   models/                    # Trained ML models
-    c_model.pkl
-    c_scaler.pkl
-    c_metadata.json
-    cpp_model.pkl
-    cpp_scaler.pkl
-    cpp_metadata.json
+    c_model.pkl / c_scaler.pkl / c_metadata.json
+    cpp_model.pkl / cpp_scaler.pkl / cpp_metadata.json
   src/
     preprocessor.py          # AST normalization (Python)
     detectors.py             # Winnowing + Jaccard
     semantic.py              # CodeBERT + cosine similarity
-    features.py              # Python feature extraction (70+)
-    ai_detector.py           # Python AI signals (19) + Qwen2.5-Coder
-    c_features.py            # C feature extraction (106)
-    c_ai_detector.py         # C AI signals (10)
-    cpp_features.py          # C++ feature extraction (134)
-    cpp_ai_detector.py       # C++ AI signals (11)
+    features.py              # Python features (70+)
+    ai_detector.py           # Python signals (19) + Qwen2.5-Coder
+    c_features.py            # C features (106)
+    c_ai_detector.py         # C signals (10)
+    cpp_features.py          # C++ features (134)
+    cpp_ai_detector.py       # C++ signals (11)
     ml_detector.py           # ML inference module
 ```
 
@@ -197,15 +216,14 @@ fraud_detection_system/
 
 | Mode | Engine | Ưu điểm | Nhược điểm |
 |------|--------|---------|-------------|
-| Rule-Based | Signal weights + sigmoid | Giải thích được, không cần train | Cần calibrate thủ công |
-| ML Model | Random Forest / XGBoost | Accuracy cao, tự học từ data | Cần dataset đủ lớn |
+| Rule-Based | Signal weights + sigmoid | Giải thích được, nhanh | Cần calibrate thủ công |
+| ML Model | Random Forest / XGBoost | Accuracy cao nhất | Cần dataset + training |
 
 ## Perplexity Model
 
-Cả 3 hệ thống đều sử dụng **Qwen/Qwen2.5-Coder-0.5B** cho perplexity scoring (optional):
-- AI code có perplexity thấp (dễ đoán)
-- Human code có perplexity cao (khó đoán hơn)
-- Burstiness thấp = output đều đặn = AI pattern
+Cả 3 hệ thống sử dụng **Qwen/Qwen2.5-Coder-0.5B** (optional):
+- AI code = perplexity thấp (dễ đoán)
+- Human code = perplexity cao (khó đoán)
 - Cần ~1GB download lần đầu
 
 ## Dependencies
